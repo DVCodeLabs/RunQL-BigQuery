@@ -10,3 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Initial release.
 - BigQuery connection provider.
 - `BigQueryAdapter` with query execution, non-query execution, and schema introspection for datasets, tables, views, columns, constraints, routines, and routine parameters where metadata permissions allow.
+
+
+## [1.0.1]
+
+### Changed
+- Update extension icon.
