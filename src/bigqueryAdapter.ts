@@ -98,11 +98,10 @@ export class BigQueryAdapter implements DbAdapter {
     const client = this.createClient(profile, secrets);
     const schemasMap = new Map<string, BigQuerySchemaEntry>();
 
-    const [datasets] = await (client as any).getDatasets({ autoPaginate: true });
-    const datasetIds = (datasets as any[])
-      .map((dataset) => this.getDatasetId(dataset))
-      .filter((datasetId): datasetId is string => Boolean(datasetId))
-      .sort((a, b) => a.localeCompare(b));
+    const requestedDataset = profile.schema?.trim();
+    const datasetIds = requestedDataset
+      ? [requestedDataset]
+      : await this.getVisibleDatasetIds(client);
 
     for (const datasetId of datasetIds) {
       const schema = this.ensureSchema(schemasMap, datasetId);
@@ -479,6 +478,14 @@ export class BigQueryAdapter implements DbAdapter {
     } catch {
       return [];
     }
+  }
+
+  private async getVisibleDatasetIds(client: BigQuery): Promise<string[]> {
+    const [datasets] = await (client as any).getDatasets({ autoPaginate: true });
+    return (datasets as any[])
+      .map((dataset) => this.getDatasetId(dataset))
+      .filter((datasetId): datasetId is string => Boolean(datasetId))
+      .sort((a, b) => a.localeCompare(b));
   }
 
   private inferRoutineLanguage(definition: string | undefined): string | undefined {

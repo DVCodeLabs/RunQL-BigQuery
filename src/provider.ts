@@ -33,7 +33,7 @@ export const bigqueryProvider: DPProviderDescriptor = {
         tab: 'connection',
         storage: 'profile',
         placeholder: 'analytics',
-        description: 'Used as the default dataset for unqualified table references. Introspection returns all visible datasets in the project.',
+        description: 'Used as the default dataset for unqualified table references. When provided, introspection is scoped to this dataset.',
         width: 'full'
       },
       {
