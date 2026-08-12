@@ -3,6 +3,7 @@ import {
   ColumnModel,
   ConnectionProfile,
   ConnectionSecrets,
+  CopyTableOptions,
   DbAdapter,
   ForeignKeyModel,
   NonQueryResult,
@@ -137,6 +138,95 @@ export class BigQueryAdapter implements DbAdapter {
       dialect: 'bigquery',
       schemas
     };
+  }
+
+  // ─── Optional table-operation capabilities ────────────────────────────────
+
+  async getTableDdl(
+    profile: ConnectionProfile,
+    secrets: ConnectionSecrets,
+    schema: string | undefined,
+    table: string
+  ): Promise<string> {
+    if (!schema) {
+      throw new Error('BigQuery DDL retrieval requires a dataset (schema).');
+    }
+    const client = this.createClient(profile, secrets);
+    const projectId = this.resolveProjectId(profile, secrets);
+    if (!projectId) {
+      throw new Error('BigQuery project ID could not be resolved for DDL retrieval.');
+    }
+    const sql =
+      `SELECT ddl FROM \`${projectId}.${schema}.INFORMATION_SCHEMA.TABLES\` ` +
+      `WHERE table_name = @tableName`;
+    const [job] = await (client as any).createQueryJob({
+      query: sql,
+      params: { tableName: table },
+      location: this.getLocation(profile),
+    });
+    const [rows] = await (job as any).getQueryResults();
+    const first = (rows as Array<Record<string, unknown>>)[0];
+    const ddl = first && typeof first.ddl === 'string' ? first.ddl.trim() : '';
+    if (!ddl) {
+      throw new Error(`No DDL returned for ${projectId}.${schema}.${table}.`);
+    }
+    return ddl;
+  }
+
+  async dumpTableStructure(
+    profile: ConnectionProfile,
+    secrets: ConnectionSecrets,
+    schema: string | undefined,
+    table: string
+  ): Promise<string> {
+    return this.getTableDdl(profile, secrets, schema, table);
+  }
+
+  async truncateTable(
+    profile: ConnectionProfile,
+    secrets: ConnectionSecrets,
+    schema: string | undefined,
+    table: string
+  ): Promise<void> {
+    const client = this.createClient(profile, secrets);
+    const fqn = this.buildBigQueryFqn(profile, secrets, schema, table);
+    await this.runQueryJob(client, profile, `TRUNCATE TABLE ${fqn}`, 1);
+  }
+
+  async copyTable(
+    profile: ConnectionProfile,
+    secrets: ConnectionSecrets,
+    sourceSchema: string | undefined,
+    sourceTable: string,
+    options: CopyTableOptions
+  ): Promise<void> {
+    const client = this.createClient(profile, secrets);
+    const src = this.buildBigQueryFqn(profile, secrets, sourceSchema, sourceTable);
+    const dst = this.buildBigQueryFqn(
+      profile,
+      secrets,
+      options.destSchema ?? sourceSchema,
+      options.destTable
+    );
+    // BigQuery's `CREATE TABLE dst COPY src` is a metadata copy — instant,
+    // no scan cost. `CREATE TABLE dst LIKE src` is native structure-only.
+    const sql = options.withData
+      ? `CREATE TABLE ${dst} COPY ${src}`
+      : `CREATE TABLE ${dst} LIKE ${src}`;
+    await this.runQueryJob(client, profile, sql, 1);
+  }
+
+  private buildBigQueryFqn(
+    profile: ConnectionProfile,
+    secrets: ConnectionSecrets,
+    schema: string | undefined,
+    table: string
+  ): string {
+    const projectId = this.resolveProjectId(profile, secrets);
+    const parts = [projectId, schema, table].filter((p): p is string => !!p && p.trim().length > 0);
+    // Standard SQL accepts backticks around either each part or the whole path.
+    // Per-part quoting is safer with dashes in project IDs.
+    return parts.map((p) => `\`${p.replace(/`/g, '\\`')}\``).join('.');
   }
 
   private createClient(profile: ConnectionProfile, secrets: ConnectionSecrets): BigQuery {
